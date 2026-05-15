@@ -7,7 +7,6 @@ interface StreakData {
   longest: number;
   lastCommitDate: string | null;
   totalActiveDays: number;
-  freezeDates?: string[];
 }
 
 interface ContributionData {
@@ -282,7 +281,6 @@ export default function StreakTracker() {
       {contributionData ? (
         <StreakCalendar
           contributions={contributionData.data}
-          freezeDates={data?.freezeDates ?? []}
           currentMonth={calendarMonth}
           onMonthChange={setCalendarMonth}
         />
@@ -293,12 +291,11 @@ export default function StreakTracker() {
 
 interface StreakCalendarProps {
   contributions: Record<string, number>;
-  freezeDates: string[];
   currentMonth: Date;
   onMonthChange: (date: Date) => void;
 }
 
-function StreakCalendar({ contributions, freezeDates, currentMonth, onMonthChange }: StreakCalendarProps) {
+function StreakCalendar({ contributions, currentMonth, onMonthChange }: StreakCalendarProps) {
   const today = new Date();
   const year = currentMonth.getFullYear();
   const month = currentMonth.getMonth();
@@ -365,27 +362,19 @@ function StreakCalendar({ contributions, freezeDates, currentMonth, onMonthChang
 
           const dateStr = dayData.date.toISOString().slice(0, 10);
           const commitCount = contributions[dateStr] ?? 0;
-          const isFrozen = freezeDates.includes(dateStr);
           const isFuture = dayData.date > today;
           const isToday = dayData.date.toDateString() === today.toDateString();
 
           let bgColor = "bg-white dark:bg-transparent";
           let borderColor = "border border-[var(--border)]";
-          let status = "";
 
           if (!isFuture) {
             if (commitCount > 0) {
               bgColor = "bg-green-500";
               borderColor = "border border-green-600";
-              status = "Committed";
-            } else if (isFrozen) {
-              bgColor = "bg-blue-500";
-              borderColor = "border border-blue-600";
-              status = "Frozen";
             } else {
               bgColor = "bg-gray-500";
               borderColor = "border border-gray-600";
-              status = "Missed";
             }
           }
 
@@ -394,7 +383,7 @@ function StreakCalendar({ contributions, freezeDates, currentMonth, onMonthChang
                 weekday: "short",
                 month: "short",
                 day: "numeric",
-              })}: ${status}`
+              })}: ${commitCount > 0 ? "Committed" : "Missed"}`
             : "";
 
           return (
@@ -425,10 +414,6 @@ function StreakCalendar({ contributions, freezeDates, currentMonth, onMonthChang
         <div className="flex items-center gap-2">
           <div className="h-3 w-3 rounded bg-green-500" />
           <span>Committed</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded bg-blue-500" />
-          <span>Frozen</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="h-3 w-3 rounded bg-gray-500" />
