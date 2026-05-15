@@ -9,6 +9,7 @@ interface StreakData {
   longest: number;
   lastCommitDate: string | null;
   totalActiveDays: number;
+  freezeDates: string[];
 }
 
 interface ContributionData {
@@ -25,6 +26,7 @@ export default function StreakTracker() {
   const { selectedAccount } = useAccount();
   const [data, setData] = useState<StreakData | null>(null);
   const [contributionData, setContributionData] = useState<ContributionData | null>(null);
+  const [freezeDates, setFreezeDates] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [minutesAgo, setMinutesAgo] = useState(0);
@@ -67,6 +69,7 @@ export default function StreakTracker() {
 
       setData(streakData);
       setContributionData(contribData);
+      setFreezeDates(streakData.freezeDates || []);
     } catch {
       setError("We couldn't load your streak data right now. Please try again in a moment.");
     } finally {
@@ -380,6 +383,7 @@ export default function StreakTracker() {
       {contributionData ? (
         <StreakCalendar
           contributions={contributionData.data}
+          freezeDates={freezeDates}
           currentMonth={calendarMonth}
           onMonthChange={setCalendarMonth}
         />
@@ -390,6 +394,7 @@ export default function StreakTracker() {
 
 interface StreakCalendarProps {
   contributions: Record<string, number>;
+  freezeDates: string[];
   currentMonth: Date;
   onMonthChange: (date: Date) => void;
 }
@@ -398,7 +403,12 @@ function toLocalDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function StreakCalendar({ contributions, currentMonth, onMonthChange }: StreakCalendarProps) {
+function StreakCalendar({
+  contributions,
+  freezeDates,
+  currentMonth,
+  onMonthChange,
+}: StreakCalendarProps) {
   const today = new Date();
   const year = currentMonth.getFullYear();
   const month = currentMonth.getMonth();
@@ -429,35 +439,43 @@ function StreakCalendar({ contributions, currentMonth, onMonthChange }: StreakCa
 
   return (
     <div className="mt-6 pt-6 border-t border-[var(--border)]">
-      <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-[var(--card-foreground)]">{monthName}</h3>
+      {/* Calendar Header */}
+      <div className="mb-6 flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-[var(--card-foreground)]">
+          {monthName}
+        </h3>
         <div className="flex gap-2">
           <button
             onClick={handlePrevMonth}
-            className="rounded-md p-1 hover:bg-[var(--control)] transition-colors"
+            className="rounded-md px-2 py-1 hover:bg-[var(--control)] transition-colors text-sm font-medium"
             aria-label="Previous month"
           >
-            ←
+            ← Prev
           </button>
           <button
             onClick={handleNextMonth}
-            className="rounded-md p-1 hover:bg-[var(--control)] transition-colors"
+            className="rounded-md px-2 py-1 hover:bg-[var(--control)] transition-colors text-sm font-medium"
             aria-label="Next month"
           >
-            →
+            Next →
           </button>
         </div>
       </div>
 
-      <div className="mb-2 grid grid-cols-7 gap-1">
+      {/* Day labels */}
+      <div className="mb-3 grid grid-cols-7 gap-1">
         {dayLabels.map((label) => (
-          <div key={label} className="text-center text-xs font-medium text-[var(--muted-foreground)]">
+          <div
+            key={label}
+            className="text-center text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-wider"
+          >
             {label}
           </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-7 gap-1">
+      {/* Calendar grid */}
+      <div className="grid grid-cols-7 gap-2">
         {calendarDays.map((dayData, idx) => {
           if (!dayData.date) {
             return <div key={`empty-${idx}`} className="aspect-square" />;
@@ -465,19 +483,27 @@ function StreakCalendar({ contributions, currentMonth, onMonthChange }: StreakCa
 
           const dateStr = toLocalDateStr(dayData.date);
           const commitCount = contributions[dateStr] ?? 0;
+          const isFrozen = freezeDates.includes(dateStr);
           const isFuture = dayData.date > today;
           const isToday = dayData.date.toDateString() === today.toDateString();
 
           let bgColor = "bg-white dark:bg-transparent";
           let borderColor = "border border-[var(--border)]";
+          let statusText = "";
 
           if (!isFuture) {
-            if (commitCount > 0) {
+            if (isFrozen) {
+              bgColor = "bg-blue-500";
+              borderColor = "border border-blue-600";
+              statusText = "Frozen";
+            } else if (commitCount > 0) {
               bgColor = "bg-green-500";
               borderColor = "border border-green-600";
+              statusText = "Committed";
             } else {
-              bgColor = "bg-gray-500";
-              borderColor = "border border-gray-600";
+              bgColor = "bg-gray-400";
+              borderColor = "border border-gray-500";
+              statusText = "Missed";
             }
           }
 
@@ -486,24 +512,24 @@ function StreakCalendar({ contributions, currentMonth, onMonthChange }: StreakCa
                 weekday: "short",
                 month: "short",
                 day: "numeric",
-              })}: ${commitCount > 0 ? "Committed" : "Missed"}`
+              })}: ${statusText}${!isFrozen && commitCount > 0 ? ` (${commitCount})` : ""}`
             : "";
 
           return (
             <div
               key={dateStr}
-              className={`group relative aspect-square rounded-md ${bgColor} ${borderColor} transition-transform hover:scale-110 cursor-default ${
-                isToday ? "ring-2 ring-[var(--accent)]" : ""
+              className={`group relative aspect-square rounded-lg ${bgColor} ${borderColor} transition-all hover:scale-110 hover:shadow-lg cursor-default ${
+                isToday ? "ring-2 ring-offset-1 ring-[var(--accent)]" : ""
               }`}
               title={tooltipText}
             >
               {!isFuture && (
-                <span className="absolute inset-0 flex items-center justify-center text-xs font-medium text-white dark:text-gray-900 opacity-0 group-hover:opacity-100 transition-opacity">
+                <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-white opacity-0 group-hover:opacity-100 transition-opacity">
                   {dayData.dayOfMonth}
                 </span>
               )}
               {!isFuture && tooltipText && (
-                <div className="absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-md bg-[var(--foreground)] px-2 py-1 text-xs text-[var(--background)] opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-10">
+                <div className="absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-[var(--foreground)] px-3 py-2 text-xs font-medium text-[var(--background)] opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-10 shadow-lg">
                   {tooltipText}
                   <div className="absolute top-full left-1/2 h-1 w-1 -translate-x-1/2 border-4 border-t-[var(--foreground)] border-transparent" />
                 </div>
@@ -513,18 +539,23 @@ function StreakCalendar({ contributions, currentMonth, onMonthChange }: StreakCa
         })}
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-4 text-xs text-[var(--muted-foreground)]">
-        <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded bg-green-500" />
-          <span>Committed</span>
+      {/* Legend */}
+      <div className="mt-6 flex flex-wrap gap-6 text-sm">
+        <div className="flex items-center gap-3">
+          <div className="h-4 w-4 rounded-md bg-green-500" />
+          <span className="text-[var(--card-foreground)] font-medium">Committed</span>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded bg-gray-500" />
-          <span>Missed</span>
+        <div className="flex items-center gap-3">
+          <div className="h-4 w-4 rounded-md bg-blue-500" />
+          <span className="text-[var(--card-foreground)] font-medium">Frozen</span>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded border border-[var(--border)]" />
-          <span>Future</span>
+        <div className="flex items-center gap-3">
+          <div className="h-4 w-4 rounded-md bg-gray-400" />
+          <span className="text-[var(--card-foreground)] font-medium">Missed</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="h-4 w-4 rounded-md border-2 border-[var(--border)]" />
+          <span className="text-[var(--card-foreground)] font-medium">Future</span>
         </div>
       </div>
     </div>
