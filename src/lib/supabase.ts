@@ -23,7 +23,7 @@ interface User {
 export async function getUserByUsername(username: string): Promise<User | null> {
   const { data, error } = await supabaseAdmin
     .from("users")
-    .select("*")
+    .select("id,github_id,github_login,is_public,created_at,updated_at")
     .eq("github_login", username)
     .eq("is_public", true)
     .single();
@@ -51,7 +51,7 @@ export async function updateUserPublicFlag(
     .from("users")
     .update({ is_public: isPublic })
     .eq("id", userId)
-    .select()
+    .select("id,github_id,github_login,is_public,created_at,updated_at")
     .single();
 
   if (error) {
