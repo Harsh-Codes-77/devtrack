@@ -2,15 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAccount } from "@/components/AccountContext";
-import { useCountUp } from "@/hooks/useCountUp";
-import { useHeatmapTheme } from "@/hooks/useHeatmapTheme";
+import RateLimitBanner from "./RateLimitBanner";
 
 interface StreakData {
   current: number;
   longest: number;
   lastCommitDate: string | null;
   totalActiveDays: number;
-  freezeDates?: string[];
 }
 
 interface ContributionData {
@@ -27,7 +25,6 @@ export default function StreakTracker() {
   const { selectedAccount } = useAccount();
   const [data, setData] = useState<StreakData | null>(null);
   const [contributionData, setContributionData] = useState<ContributionData | null>(null);
-  const [freezeDates, setFreezeDates] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [minutesAgo, setMinutesAgo] = useState(0);
@@ -38,14 +35,12 @@ export default function StreakTracker() {
   const [freezeLoading, setFreezeLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
-
-  const animatedCurrent = useCountUp(data?.current ?? 0);
-  const animatedLongest = useCountUp(data?.longest ?? 0);
-  const animatedActiveDays = useCountUp(data?.totalActiveDays ?? 0);
+  const [rateLimitResetAt, setRateLimitResetAt] = useState<number | null>(null);
 
   const fetchStreak = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setRateLimitResetAt(null);
 
     try {
       const streakUrl =
@@ -61,6 +56,13 @@ export default function StreakTracker() {
         fetch(contributionUrl),
       ]);
 
+      if (streakRes.status === 429 || contributionRes.status === 429) {
+        const res = streakRes.status === 429 ? streakRes : contributionRes;
+        const d = (await res.json()) as { error: string; resetAt: number };
+        setRateLimitResetAt(d.resetAt);
+        throw new Error("Rate limited");
+      }
+
       if (!streakRes.ok || !contributionRes.ok) {
         throw new Error("Failed to fetch data");
       }
@@ -70,9 +72,10 @@ export default function StreakTracker() {
 
       setData(streakData);
       setContributionData(contribData);
-      setFreezeDates(streakData.freezeDates || []);
-    } catch {
-      setError("We couldn't load your streak data right now. Please try again in a moment.");
+    } catch (err) {
+      if ((err as Error).message !== "Rate limited") {
+        setError("We couldn't load your streak data right now. Please try again in a moment.");
+      }
     } finally {
       setLoading(false);
       setLastUpdated(new Date());
@@ -176,14 +179,12 @@ export default function StreakTracker() {
   ];
 
   const badge = MILESTONES.find((m) => (data?.current ?? 0) >= m.days);
-  const activeDayData = calculateActiveDayInsights(contributionData?.data);
-  const monthlyTrend = calculateMonthlyTrend(contributionData);
 
   const stats = data
     ? [
         {
           label: "Current Streak",
-          value: animatedCurrent,
+          value: data.current,
           unit: "days",
           highlight: data.current > 0,
           icon: "🔥",
@@ -191,7 +192,7 @@ export default function StreakTracker() {
         },
         {
           label: "Longest Streak",
-          value: animatedLongest,
+          value: data.longest,
           unit: "days",
           highlight: false,
           icon: "🏆",
@@ -199,7 +200,7 @@ export default function StreakTracker() {
         },
         {
           label: "Active Days (90d)",
-          value: animatedActiveDays,
+          value: data.totalActiveDays,
           unit: "days",
           highlight: false,
           icon: "📅",
@@ -288,64 +289,10 @@ export default function StreakTracker() {
           </div>
         ))}
       </div>
-      {monthlyTrend.isValid && (
-        <div className="mt-3 flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 py-2.5 text-xs shadow-sm">
-          <span className="text-[var(--muted-foreground)]">
-            This month: <strong className="font-semibold text-[var(--card-foreground)]">{monthlyTrend.thisMonth} active days</strong>
-          </span>
-          <span className={monthlyTrend.colorClass}>
-            ({monthlyTrend.text})
-          </span>
-        </div>
-      )}
       {badge && (
         <div className="mt-3 flex items-center justify-center gap-2 rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/10 px-3 py-2">
           <span>{badge.emoji}</span>
           <span className="text-sm font-medium text-[var(--accent)]">{badge.label}</span>
-        </div>
-      )}
-
-      {activeDayData.isValid && activeDayData.peakDay && (
-        <div className="mt-4 pt-4 border-t border-[var(--border)]">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div>
-              <div className="text-xs font-medium text-[var(--muted-foreground)]">Most Active Day</div>
-              <div className="text-sm font-semibold text-[var(--card-foreground)] mt-0.5">
-                {activeDayData.peakDay.label}{" "}
-                <span className="text-xs font-normal text-[var(--muted-foreground)]">
-                  (avg {activeDayData.peakDay.avgCommits.toFixed(1)} commits)
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-end gap-1.5 h-10 pt-2">
-              {activeDayData.insights.map((item) => {
-                const maxAvg = activeDayData.peakDay?.avgCommits ?? 1;
-                const heightPercent = maxAvg > 0 ? Math.max(15, Math.round((item.avgCommits / maxAvg) * 100)) : 15;
-                const isPeak = item.label === activeDayData.peakDay?.label;
-
-                return (
-                  <div
-                    key={item.label}
-                    className="flex flex-col items-center gap-1 group relative cursor-default"
-                    title={`${item.label}: avg ${item.avgCommits.toFixed(1)} commits`}
-                  >
-                    <div className="w-5 bg-[var(--card-muted)] rounded-sm flex items-end h-8 overflow-hidden">
-                      <div
-                        style={{ height: `${heightPercent}%` }}
-                        className={`w-full rounded-sm transition-all duration-300 ${
-                          isPeak ? "bg-[var(--accent)]" : "bg-[var(--accent)]/40 hover:bg-[var(--accent)]/60"
-                        }`}
-                      />
-                    </div>
-                    <span className={`text-[10px] leading-none ${isPeak ? "font-bold text-[var(--card-foreground)]" : "text-[var(--muted-foreground)]"}`}>
-                      {item.shortLabel}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
         </div>
       )}
       {lastUpdated && (
@@ -395,7 +342,6 @@ export default function StreakTracker() {
       {contributionData ? (
         <StreakCalendar
           contributions={contributionData.data}
-          freezeDates={freezeDates}
           currentMonth={calendarMonth}
           onMonthChange={setCalendarMonth}
         />
@@ -406,21 +352,11 @@ export default function StreakTracker() {
 
 interface StreakCalendarProps {
   contributions: Record<string, number>;
-  freezeDates: string[];
   currentMonth: Date;
   onMonthChange: (date: Date) => void;
 }
 
-function toLocalDateStr(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function StreakCalendar({
-  contributions,
-  freezeDates,
-  currentMonth,
-  onMonthChange,
-}: StreakCalendarProps) {
+function StreakCalendar({ contributions, currentMonth, onMonthChange }: StreakCalendarProps) {
   const today = new Date();
   const year = currentMonth.getFullYear();
   const month = currentMonth.getMonth();
@@ -430,7 +366,6 @@ function StreakCalendar({
   const daysInMonth = lastDay.getDate();
   const startingDayOfWeek = firstDay.getDay();
 
-  const { getCalendarStyle, themeConfig } = useHeatmapTheme();
   const monthName = firstDay.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -486,41 +421,47 @@ function StreakCalendar({
             return <div key={`empty-${idx}`} className="aspect-square" />;
           }
 
-          const dateStr = toLocalDateStr(dayData.date);
+          const dateStr = dayData.date.toISOString().slice(0, 10);
           const commitCount = contributions[dateStr] ?? 0;
-          const isFrozen = freezeDates.includes(dateStr);
           const isFuture = dayData.date > today;
           const isToday = dayData.date.toDateString() === today.toDateString();
-          const cellStyle = isFuture
-            ? { backgroundColor: "transparent", borderColor: themeConfig.border }
-            : isFrozen
-              ? { backgroundColor: "rgba(59, 130, 246, 0.9)", borderColor: "rgba(37, 99, 235, 1)" }
-            : getCalendarStyle(commitCount);
+
+          let bgColor = "bg-white dark:bg-transparent";
+          let borderColor = "border border-[var(--border)]";
+
+          if (!isFuture) {
+            if (commitCount > 0) {
+              bgColor = "bg-green-500";
+              borderColor = "border border-green-600";
+            } else {
+              bgColor = "bg-gray-500";
+              borderColor = "border border-gray-600";
+            }
+          }
 
           const tooltipText = !isFuture
             ? `${dayData.date.toLocaleDateString("en-US", {
                 weekday: "short",
                 month: "short",
                 day: "numeric",
-              })}: ${isFrozen ? "Frozen" : commitCount > 0 ? "Committed" : "Missed"}${!isFrozen && commitCount > 0 ? ` (${commitCount})` : ""}`
+              })}: ${commitCount > 0 ? "Committed" : "Missed"}`
             : "";
 
           return (
             <div
               key={dateStr}
-              className={`group relative aspect-square rounded-lg border transition-transform hover:scale-110 cursor-default ${
+              className={`group relative aspect-square rounded-md ${bgColor} ${borderColor} transition-transform hover:scale-110 cursor-default ${
                 isToday ? "ring-2 ring-[var(--accent)]" : ""
               }`}
-              style={cellStyle}
               title={tooltipText}
             >
               {!isFuture && (
-                <span className="absolute inset-0 flex items-center justify-center text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
+                <span className="absolute inset-0 flex items-center justify-center text-xs font-medium text-white dark:text-gray-900 opacity-0 group-hover:opacity-100 transition-opacity">
                   {dayData.dayOfMonth}
                 </span>
               )}
               {!isFuture && tooltipText && (
-                <div className="absolute bottom-full left-1/2 z-10 mb-2 -translate-x-1/2 whitespace-nowrap rounded-md bg-[var(--foreground)] px-2 py-1 text-xs text-[var(--background)] opacity-0 pointer-events-none transition-opacity group-hover:opacity-100">
+                <div className="absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-md bg-[var(--foreground)] px-2 py-1 text-xs text-[var(--background)] opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-10">
                   {tooltipText}
                   <div className="absolute top-full left-1/2 h-1 w-1 -translate-x-1/2 border-4 border-t-[var(--foreground)] border-transparent" />
                 </div>
@@ -532,156 +473,18 @@ function StreakCalendar({
 
       <div className="mt-4 flex flex-wrap gap-4 text-xs text-[var(--muted-foreground)]">
         <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded border border-solid" style={{ backgroundColor: themeConfig.levelTwo, borderColor: themeConfig.border }} />
+          <div className="h-3 w-3 rounded bg-green-500" />
           <span>Committed</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded border border-solid" style={{ backgroundColor: "rgba(59, 130, 246, 0.9)", borderColor: "rgba(37, 99, 235, 1)" }} />
-          <span>Frozen</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded border border-solid" style={{ backgroundColor: themeConfig.missed, borderColor: themeConfig.border }} />
+          <div className="h-3 w-3 rounded bg-gray-500" />
           <span>Missed</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded border border-solid" style={{ backgroundColor: "transparent", borderColor: themeConfig.border }} />
+          <div className="h-3 w-3 rounded border border-[var(--border)]" />
           <span>Future</span>
         </div>
       </div>
     </div>
   );
-}
-
-interface WeekdayInsight {
-  label: string;
-  shortLabel: string;
-  totalCommits: number;
-  countDays: number;
-  avgCommits: number;
-}
-
-function calculateActiveDayInsights(data: Record<string, number> | undefined | null): {
-  insights: WeekdayInsight[];
-  peakDay: WeekdayInsight | null;
-  isValid: boolean;
-} {
-  if (!data || Object.keys(data).length < 14) {
-    return { insights: [], peakDay: null, isValid: false };
-  }
-
-  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  const shortNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-  const totals = [0, 0, 0, 0, 0, 0, 0];
-  const counts = [0, 0, 0, 0, 0, 0, 0];
-
-  for (const [dateStr, commitCount] of Object.entries(data)) {
-    const parts = dateStr.split("-").map(Number);
-    if (parts.length === 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])) {
-      const d = new Date(parts[0], parts[1] - 1, parts[2]);
-      if (!isNaN(d.getTime())) {
-        const dayIdx = d.getDay();
-        totals[dayIdx] += commitCount;
-        counts[dayIdx] += 1;
-      }
-    }
-  }
-
-  const insights: WeekdayInsight[] = [];
-  for (let i = 0; i < 7; i++) {
-    const totalCommits = totals[i];
-    const countDays = counts[i];
-    const avgCommits = countDays > 0 ? totalCommits / countDays : 0;
-    insights.push({
-      label: dayNames[i],
-      shortLabel: shortNames[i],
-      totalCommits,
-      countDays,
-      avgCommits,
-    });
-  }
-
-  let maxAvg = -1;
-  for (const item of insights) {
-    if (item.avgCommits > maxAvg) {
-      maxAvg = item.avgCommits;
-    }
-  }
-
-  const tiedDays = insights.filter((item) => item.avgCommits === maxAvg);
-  tiedDays.sort((a, b) => a.label.localeCompare(b.label));
-  const peakDay = tiedDays.length > 0 ? tiedDays[0] : null;
-
-  return { insights, peakDay, isValid: true };
-}
-
-interface MonthlyTrendResult {
-  isValid: boolean;
-  thisMonth: number;
-  lastMonth: number;
-  text: string;
-  colorClass: string;
-}
-
-function calculateMonthlyTrend(contrib: ContributionData | undefined | null): MonthlyTrendResult {
-  if (!contrib || !contrib.data) {
-    return { isValid: false, thisMonth: 0, lastMonth: 0, text: "", colorClass: "" };
-  }
-
-  if (contrib.days < 30) {
-    return { isValid: false, thisMonth: 0, lastMonth: 0, text: "", colorClass: "" };
-  }
-
-  const data = contrib.data;
-
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth();
-
-  const prevDate = new Date(currentYear, currentMonth - 1, 1);
-  const prevYear = prevDate.getFullYear();
-  const prevMonth = prevDate.getMonth();
-
-  let thisMonth = 0;
-  let lastMonth = 0;
-
-  for (const [dateStr, count] of Object.entries(data)) {
-    if (count > 0) {
-      const parts = dateStr.split("-").map(Number);
-      if (parts.length === 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])) {
-        const d = new Date(parts[0], parts[1] - 1, parts[2]);
-        if (!isNaN(d.getTime())) {
-          if (d.getFullYear() === currentYear && d.getMonth() === currentMonth) {
-            thisMonth++;
-          } else if (d.getFullYear() === prevYear && d.getMonth() === prevMonth) {
-            lastMonth++;
-          }
-        }
-      }
-    }
-  }
-
-  let text = "";
-  let colorClass = "";
-
-  if (lastMonth === 0) {
-    text = "First month tracked!";
-    colorClass = "text-[var(--accent)] font-medium";
-  } else {
-    const deltaCalc = ((thisMonth - lastMonth) / lastMonth) * 100;
-    const formatted = deltaCalc.toFixed(0);
-
-    if (deltaCalc > 0) {
-      text = `↑${formatted}% vs last month`;
-      colorClass = "text-green-500 font-medium";
-    } else if (deltaCalc < 0) {
-      text = `↓${Math.abs(deltaCalc).toFixed(0)}% vs last month`;
-      colorClass = "text-red-500 font-medium";
-    } else {
-      text = `=0% vs last month`;
-      colorClass = "text-[var(--muted-foreground)] font-medium";
-    }
-  }
-
-  return { isValid: true, thisMonth, lastMonth, text, colorClass };
 }

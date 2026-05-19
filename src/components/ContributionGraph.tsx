@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAccount } from "@/components/AccountContext";
+import RateLimitBanner from "./RateLimitBanner";
 import {
   BarChart,
   Bar,
@@ -13,7 +14,6 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import RateLimitBanner from "./RateLimitBanner";
 
 interface DayData {
   day: string;
@@ -90,8 +90,6 @@ export default function ContributionGraph() {
     }, 60000);
     return () => clearInterval(interval);
   }, [lastUpdated]);
-
-
 
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-sm">

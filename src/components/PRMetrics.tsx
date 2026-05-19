@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAccount } from "@/components/AccountContext";
+import RateLimitBanner from "./RateLimitBanner";
 
 interface PRData {
   open: number;
@@ -15,10 +16,12 @@ export default function PRMetrics() {
   const [metrics, setMetrics] = useState<PRData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [rateLimitResetAt, setRateLimitResetAt] = useState<number | null>(null);
 
   const fetchMetrics = useCallback(() => {
     setLoading(true);
     setError(null);
+    setRateLimitResetAt(null);
 
     const url =
       selectedAccount !== null
@@ -26,12 +29,21 @@ export default function PRMetrics() {
         : "/api/metrics/prs";
 
     fetch(url)
-      .then((r) => {
+      .then(async (r) => {
+        if (r.status === 429) {
+          const d = (await r.json()) as { error: string; resetAt: number };
+          setRateLimitResetAt(d.resetAt);
+          throw new Error("Rate limited");
+        }
         if (!r.ok) throw new Error("API error");
         return r.json();
       })
       .then((data: PRData) => setMetrics(data))
-      .catch(() => setError("We couldn't load your PR analytics right now. Please try again in a moment."))
+      .catch((err) => {
+        if (err.message !== "Rate limited") {
+          setError("We couldn't load your PR analytics right now. Please try again in a moment.");
+        }
+      })
       .finally(() => setLoading(false));
   }, [selectedAccount]);
 
@@ -60,6 +72,8 @@ export default function PRMetrics() {
             />
           ))}
         </div>
+      ) : rateLimitResetAt ? (
+        <RateLimitBanner resetAt={rateLimitResetAt} />
       ) : error ? (
         <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-400">
           <p>{error}</p>
@@ -76,12 +90,12 @@ export default function PRMetrics() {
           {stats.map((stat) => (
             <div
               key={stat.label}
-              className="rounded-lg bg-[var(--control)] p-4 text-center min-w-0"
+              className="rounded-lg bg-[var(--control)] p-4 text-center"
             >
-              <div className="truncate text-2xl font-bold text-[var(--accent)]">
+              <div className="text-2xl font-bold text-[var(--accent)]">
                 {stat.value}
               </div>
-              <div className="truncate mt-1 text-sm text-[var(--muted-foreground)]">{stat.label}</div>
+              <div className="mt-1 text-sm text-[var(--muted-foreground)]">{stat.label}</div>
             </div>
           ))}
         </div>

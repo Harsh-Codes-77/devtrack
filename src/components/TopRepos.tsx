@@ -16,12 +16,12 @@ export default function TopRepos() {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [rateLimitResetAt, setRateLimitResetAt] = useState<number | null>(null);
   const [days, setDays] = useState(30);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [minutesAgo, setMinutesAgo] = useState(0);
   const [healthScores, setHealthScores] = useState<Record<string, RepoHealthScore>>({});
   const [healthLoading, setHealthLoading] = useState(true);
+  const [rateLimitResetAt, setRateLimitResetAt] = useState<number | null>(null);
 
   const fetchRepos = useCallback(() => {
     setLoading(true);
@@ -75,7 +75,11 @@ export default function TopRepos() {
         }
         setHealthScores(map);
       })
-      .catch(() => setHealthScores({}))
+      .catch((err) => {
+        if (err.message !== "Rate limited") {
+          setHealthScores({});
+        }
+      })
       .finally(() => setHealthLoading(false));
   }, [selectedAccount]);
 
