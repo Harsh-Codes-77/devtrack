@@ -10,6 +10,7 @@ interface StreakData {
   longest: number;
   lastCommitDate: string | null;
   totalActiveDays: number;
+  freezeDates?: string[];
 }
 
 interface ContributionData {
@@ -26,6 +27,7 @@ export default function StreakTracker() {
   const { selectedAccount } = useAccount();
   const [data, setData] = useState<StreakData | null>(null);
   const [contributionData, setContributionData] = useState<ContributionData | null>(null);
+  const [freezeDates, setFreezeDates] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [minutesAgo, setMinutesAgo] = useState(0);
@@ -68,6 +70,7 @@ export default function StreakTracker() {
 
       setData(streakData);
       setContributionData(contribData);
+      setFreezeDates(streakData.freezeDates || []);
     } catch {
       setError("We couldn't load your streak data right now. Please try again in a moment.");
     } finally {
@@ -392,6 +395,7 @@ export default function StreakTracker() {
       {contributionData ? (
         <StreakCalendar
           contributions={contributionData.data}
+          freezeDates={freezeDates}
           currentMonth={calendarMonth}
           onMonthChange={setCalendarMonth}
         />
@@ -402,6 +406,7 @@ export default function StreakTracker() {
 
 interface StreakCalendarProps {
   contributions: Record<string, number>;
+  freezeDates: string[];
   currentMonth: Date;
   onMonthChange: (date: Date) => void;
 }
@@ -410,7 +415,12 @@ function toLocalDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function StreakCalendar({ contributions, currentMonth, onMonthChange }: StreakCalendarProps) {
+function StreakCalendar({
+  contributions,
+  freezeDates,
+  currentMonth,
+  onMonthChange,
+}: StreakCalendarProps) {
   const today = new Date();
   const year = currentMonth.getFullYear();
   const month = currentMonth.getMonth();
@@ -478,10 +488,13 @@ function StreakCalendar({ contributions, currentMonth, onMonthChange }: StreakCa
 
           const dateStr = toLocalDateStr(dayData.date);
           const commitCount = contributions[dateStr] ?? 0;
+          const isFrozen = freezeDates.includes(dateStr);
           const isFuture = dayData.date > today;
           const isToday = dayData.date.toDateString() === today.toDateString();
           const cellStyle = isFuture
             ? { backgroundColor: "transparent", borderColor: themeConfig.border }
+            : isFrozen
+              ? { backgroundColor: "rgba(59, 130, 246, 0.9)", borderColor: "rgba(37, 99, 235, 1)" }
             : getCalendarStyle(commitCount);
 
           const tooltipText = !isFuture
@@ -489,25 +502,25 @@ function StreakCalendar({ contributions, currentMonth, onMonthChange }: StreakCa
                 weekday: "short",
                 month: "short",
                 day: "numeric",
-              })}: ${commitCount > 0 ? "Committed" : "Missed"}`
+              })}: ${isFrozen ? "Frozen" : commitCount > 0 ? "Committed" : "Missed"}${!isFrozen && commitCount > 0 ? ` (${commitCount})` : ""}`
             : "";
 
           return (
             <div
               key={dateStr}
-              className={`group relative aspect-square rounded-md border transition-transform hover:scale-110 cursor-default ${
+              className={`group relative aspect-square rounded-lg border transition-transform hover:scale-110 cursor-default ${
                 isToday ? "ring-2 ring-[var(--accent)]" : ""
               }`}
               style={cellStyle}
               title={tooltipText}
             >
               {!isFuture && (
-                <span className="absolute inset-0 flex items-center justify-center text-xs font-medium text-[var(--foreground)] opacity-100 transition-opacity">
+                <span className="absolute inset-0 flex items-center justify-center text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
                   {dayData.dayOfMonth}
                 </span>
               )}
               {!isFuture && tooltipText && (
-                <div className="absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-md bg-[var(--foreground)] px-2 py-1 text-xs text-[var(--background)] opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-10">
+                <div className="absolute bottom-full left-1/2 z-10 mb-2 -translate-x-1/2 whitespace-nowrap rounded-md bg-[var(--foreground)] px-2 py-1 text-xs text-[var(--background)] opacity-0 pointer-events-none transition-opacity group-hover:opacity-100">
                   {tooltipText}
                   <div className="absolute top-full left-1/2 h-1 w-1 -translate-x-1/2 border-4 border-t-[var(--foreground)] border-transparent" />
                 </div>
@@ -521,6 +534,10 @@ function StreakCalendar({ contributions, currentMonth, onMonthChange }: StreakCa
         <div className="flex items-center gap-2">
           <div className="h-3 w-3 rounded border border-solid" style={{ backgroundColor: themeConfig.levelTwo, borderColor: themeConfig.border }} />
           <span>Committed</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="h-3 w-3 rounded border border-solid" style={{ backgroundColor: "rgba(59, 130, 246, 0.9)", borderColor: "rgba(37, 99, 235, 1)" }} />
+          <span>Frozen</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="h-3 w-3 rounded border border-solid" style={{ backgroundColor: themeConfig.missed, borderColor: themeConfig.border }} />
