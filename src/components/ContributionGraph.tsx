@@ -16,6 +16,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
+import RateLimitBanner from "./RateLimitBanner";
 
 interface DayData {
   day: string;
@@ -83,6 +84,7 @@ export default function ContributionGraph() {
   const [minutesAgo, setMinutesAgo] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [usesTouchTooltip, setUsesTouchTooltip] = useState(false);
+  const [rateLimitResetAt, setRateLimitResetAt] = useState<number | null>(null);
   
   // Compare mode state
   const [compareMode, setCompareMode] = useState(false);
@@ -133,12 +135,18 @@ export default function ContributionGraph() {
   useEffect(() => {
     setLoading(true);
     setError(null);
+    setRateLimitResetAt(null);
     const accountParam =
       selectedAccount !== null
         ? `&accountId=${encodeURIComponent(selectedAccount)}`
         : "";
     fetch(`/api/metrics/contributions?days=${days}${accountParam}`)
-      .then((r) => {
+      .then(async (r) => {
+        if (r.status === 429) {
+          const d = (await r.json()) as { error: string; resetAt: number };
+          setRateLimitResetAt(d.resetAt);
+          throw new Error("Rate limited");
+        }
         if (!r.ok) throw new Error("API error");
         return r.json();
       })
@@ -148,8 +156,10 @@ export default function ContributionGraph() {
           .map(([day, commits]) => ({ day, commits }));
         setData(sorted);
       })
-      .catch(() => {
-        setError("Failed to load contribution data.");
+      .catch((err) => {
+        if (err.message !== "Rate limited") {
+          setError("Failed to load contribution data.");
+        }
       })
       .finally(() => {
         setLoading(false);
@@ -279,8 +289,8 @@ export default function ContributionGraph() {
                 aria-pressed={days === r.days}
                 className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
                   days === r.days
-                    ? "bg-[var(--accent)] text-[var(--background)]"
-                    : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                    ? "bg-[var(--accent)] text-[var(--accent-foreground)]"
+                    : "text-[var(--muted-foreground)] hover:text-[var(--card-foreground)]"
                 }`}
               >
                 {r.label}
@@ -301,10 +311,10 @@ export default function ContributionGraph() {
                   type="button"
                   onClick={() => setChartType(chart.key)}
                   aria-pressed={chartType === chart.key}
-                  className={`px-3 py-1 rounded-md transition-colors duration-200 focus:outline-none ${
+                  className={`px-3 py-1 rounded-md transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
                     chartType === chart.key
-                      ? "bg-[var(--accent)] text-[var(--background)]"
-                      : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                      ? "bg-[var(--accent)] text-[var(--accent-foreground)]"
+                      : "text-[var(--muted-foreground)] hover:text-[var(--card-foreground)]"
                   }`}
                 >
                   {chart.label}
@@ -326,7 +336,9 @@ export default function ContributionGraph() {
       </div>
 
       {loading ? (
-        <div className="h-[220px] rounded border border-[var(--border)] bg-[var(--background)] animate-pulse" />
+        <div className="h-[200px] rounded bg-[var(--card-muted)] animate-pulse" />
+      ) : rateLimitResetAt ? (
+        <RateLimitBanner resetAt={rateLimitResetAt} />
       ) : error ? (
         <div className="flex h-[220px] items-center rounded-lg border border-[var(--border)] bg-[var(--background)] px-4">
           <p className="text-sm text-[var(--muted-foreground)]">
