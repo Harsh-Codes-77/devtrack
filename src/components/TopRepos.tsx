@@ -5,18 +5,15 @@ import { useAccount } from "@/components/AccountContext";
 import RateLimitBanner from "./RateLimitBanner";
 import type { RepoHealthScore } from "@/types/repo-health";
 
-interface RepoData {
+interface Repo {
   name: string;
   commits: number;
-}
-
-interface ReposResponse {
-  repos: RepoData[];
+  url: string;
 }
 
 export default function TopRepos() {
   const { selectedAccount } = useAccount();
-  const [repos, setRepos] = useState<RepoData[]>([]);
+  const [repos, setRepos] = useState<Repo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rateLimitResetAt, setRateLimitResetAt] = useState<number | null>(null);
@@ -25,20 +22,15 @@ export default function TopRepos() {
   const [minutesAgo, setMinutesAgo] = useState(0);
   const [healthScores, setHealthScores] = useState<Record<string, RepoHealthScore>>({});
   const [healthLoading, setHealthLoading] = useState(true);
-  const [sortColumn, setSortColumn] = useState<"commits" | "name">("commits");
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
 
   const fetchRepos = useCallback(() => {
     setLoading(true);
     setError(null);
     setRateLimitResetAt(null);
-
-    const url =
-      selectedAccount !== null
-        ? `/api/metrics/repos?days=${days}&accountId=${encodeURIComponent(selectedAccount)}`
-        : `/api/metrics/repos?days=${days}`;
-
-    fetch(url)
+    const accountParam = selectedAccount !== null
+      ? `&accountId=${encodeURIComponent(selectedAccount)}`
+      : "";
+    fetch(`/api/metrics/repos?days=${days}${accountParam}`)
       .then(async (r) => {
         if (r.status === 429) {
           const d = (await r.json()) as { error: string; resetAt: number };
@@ -48,9 +40,7 @@ export default function TopRepos() {
         if (!r.ok) throw new Error("API error");
         return r.json();
       })
-      .then((data: ReposResponse) => {
-        setRepos(Array.isArray(data?.repos) ? data.repos : []);
-      })
+      .then((d: { repos: Repo[] }) => setRepos(d.repos ?? []))
       .catch((err) => {
         if (err.message !== "Rate limited") {
           setError("We couldn't load your top repositories right now. Please try again in a moment.");
@@ -65,9 +55,10 @@ export default function TopRepos() {
 
   const fetchHealthScores = useCallback(() => {
     setHealthLoading(true);
-
-    const accountParam = selectedAccount !== null ? `?accountId=${encodeURIComponent(selectedAccount)}` : "";
-    fetch(`/api/metrics/repo-health${accountParam}${accountParam ? "&" : "?"}days=${days}`)
+    const accountParam = selectedAccount !== null
+      ? `?accountId=${encodeURIComponent(selectedAccount)}`
+      : "";
+    fetch(`/api/metrics/repo-health${accountParam}`)
       .then(async (r) => {
         if (r.status === 429) {
           const d = (await r.json()) as { error: string; resetAt: number };
@@ -86,7 +77,7 @@ export default function TopRepos() {
       })
       .catch(() => setHealthScores({}))
       .finally(() => setHealthLoading(false));
-  }, [days, selectedAccount]);
+  }, [selectedAccount]);
 
   useEffect(() => {
     if (!lastUpdated) return;
@@ -97,32 +88,13 @@ export default function TopRepos() {
     return () => clearInterval(interval);
   }, [lastUpdated]);
 
+
   useEffect(() => {
     fetchRepos();
     fetchHealthScores();
-  }, [fetchRepos, fetchHealthScores]);
+  }, [fetchRepos, fetchHealthScores, selectedAccount]);
 
-  const handleSort = (column: "commits" | "name") => {
-    if (sortColumn === column) {
-      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-    } else {
-      setSortColumn(column);
-      setSortDirection("desc");
-    }
-  };
-
-  const sortedRepos = [...repos].sort((a, b) => {
-    if (sortColumn === "name") {
-      const nameA = (a.name.split("/")[1] ?? a.name).toLowerCase();
-      const nameB = (b.name.split("/")[1] ?? b.name).toLowerCase();
-      return sortDirection === "asc"
-        ? nameA.localeCompare(nameB)
-        : nameB.localeCompare(nameA);
-    }
-    return sortDirection === "asc" ? a.commits - b.commits : b.commits - a.commits;
-  });
-
-  const maxCommits = sortedRepos[0]?.commits ?? 1;
+  const maxCommits = repos[0]?.commits ?? 1;
 
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-sm">
@@ -139,7 +111,6 @@ export default function TopRepos() {
           <option value={90}>Last 90d</option>
         </select>
       </div>
-
       {loading ? (
         <div className="space-y-3">
           {[1, 2, 3, 4].map((i) => (
@@ -162,106 +133,72 @@ export default function TopRepos() {
       ) : repos.length === 0 ? (
         <p className="text-sm text-[var(--muted-foreground)]">No commits in the last {days} days.</p>
       ) : (
-        <>
-          <div className="mb-2 flex items-center justify-between px-0 text-xs text-[var(--muted-foreground)]">
-            <button
-              type="button"
-              onClick={() => handleSort("name")}
-              className="flex items-center gap-1 transition-colors hover:text-[var(--card-foreground)]"
-              aria-label="Sort by repository name"
-            >
-              Repository
-              <span aria-hidden="true">
-                {sortColumn === "name" ? (sortDirection === "asc" ? "↑" : "↓") : "↕"}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSort("commits")}
-              className="flex items-center gap-1 transition-colors hover:text-[var(--card-foreground)]"
-              aria-label="Sort by commit count"
-            >
-              Commits
-              <span aria-hidden="true">
-                {sortColumn === "commits" ? (sortDirection === "asc" ? "↑" : "↓") : "↕"}
-              </span>
-            </button>
-          </div>
-
-          <ul className="space-y-3">
-            {sortedRepos.map((repo, idx) => {
-              const barWidth = Math.max(Math.round((repo.commits / maxCommits) * 100), 4);
-              const shortName = repo.name.split("/")[1] ?? repo.name;
-              const health = healthScores[repo.name];
-              const badgeTitle = health
-                ? `Commits: ${health.signals.commitFrequency} | PR Merge Rate: ${Math.round(
-                    health.signals.prMergeRate * 100
-                  )}% | Avg PR Time: ${Math.round(
-                    health.signals.avgPrOpenTimeHours
-                  )}h | Open Issues: ${health.signals.openIssuesCount} | Last Commit: ${health.signals.daysSinceLastCommit} days ago`
-                : undefined;
-              const badgeClass =
-                health?.grade === "green"
-                  ? "bg-green-500/15 text-green-300 border border-green-500/25"
-                  : health?.grade === "yellow"
-                    ? "bg-yellow-500/15 text-yellow-300 border border-yellow-500/25"
-                    : "bg-red-500/15 text-red-300 border border-red-500/25";
-
-              return (
-                <li key={repo.name}>
-                  <div className="mb-1 flex items-center justify-between text-sm">
-                    <a
-                      href={`https://github.com/${repo.name}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label="Open on GitHub"
-                      className="max-w-[70%] truncate text-[var(--card-foreground)] transition-colors hover:text-[var(--accent)] hover:underline"
-                      title={repo.name}
-                    >
-                      <span className="mr-1 text-[var(--muted-foreground)]">#{idx + 1}</span>
-                      {shortName}
-                    </a>
-                    <span className="flex shrink-0 items-center gap-2">
-                      {healthLoading ? (
-                        <div className="h-5 w-9 rounded bg-[var(--card-muted)] animate-pulse" />
-                      ) : health ? (
-                        <span
-                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass}`}
-                          title={badgeTitle}
-                        >
-                          {health.score}
-                        </span>
-                      ) : (
-                        <span
-                          className="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--control)] px-2 py-0.5 text-xs font-semibold text-[var(--muted-foreground)]"
-                          title="Not enough data to calculate health score"
-                        >
-                          --
-                        </span>
-                      )}
-                      <span className="text-[var(--muted-foreground)]">
-                        {repo.commits} commit{repo.commits !== 1 ? "s" : ""}
+        <ul className="space-y-3">
+          {repos.map((repo, idx) => {
+            const barWidth = Math.max(
+              Math.round((repo.commits / maxCommits) * 100),
+              4
+            );
+            const shortName = repo.name.split("/")[1] ?? repo.name;
+            const health = healthScores[repo.name];
+            const badgeTitle = health
+              ? `Commits: ${health.signals.commitFrequency} | PR Merge Rate: ${Math.round(
+                  health.signals.prMergeRate * 100
+                )}% | Avg PR Time: ${Math.round(
+                  health.signals.avgPrOpenTimeHours
+                )}h | Open Issues: ${health.signals.openIssuesCount} | Last Commit: ${health.signals.daysSinceLastCommit} days ago`
+              : undefined;
+            const badgeClass =
+              health?.grade === "green"
+                ? "bg-green-500/15 text-green-300 border border-green-500/25"
+                : health?.grade === "yellow"
+                  ? "bg-yellow-500/15 text-yellow-300 border border-yellow-500/25"
+                  : "bg-red-500/15 text-red-300 border border-red-500/25";
+            return (
+              <li key={repo.name}>
+                <div className="flex items-center justify-between text-sm mb-1">
+                  <a
+                    href={repo.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="max-w-[70%] truncate text-[var(--card-foreground)] transition-colors hover:text-[var(--accent)]"
+                    title={repo.name}
+                  >
+                    <span className="mr-1 text-[var(--muted-foreground)]">#{idx + 1}</span>
+                    {shortName}
+                  </a>
+                  <span className="shrink-0 flex items-center gap-2">
+                    {healthLoading ? (
+                      <div className="h-5 w-9 rounded bg-[var(--card-muted)] animate-pulse" />
+                    ) : health ? (
+                      <span
+                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass}`}
+                        title={badgeTitle}
+                      >
+                        {health.score}
                       </span>
+                    ) : null}
+                    <span className="text-[var(--muted-foreground)]">
+                      {repo.commits} commit{repo.commits !== 1 ? "s" : ""}
                     </span>
-                  </div>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-[var(--control)]">
-                    <div
-                      className="h-full rounded-full bg-[var(--accent)] transition-all duration-500"
-                      style={{ width: `${barWidth}%` }}
-                    />
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </>
+                  </span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-[var(--control)]">
+                  <div
+                    className="h-full rounded-full bg-[var(--accent)] transition-all duration-500"
+                    style={{ width: `${barWidth}%` }}
+                  />
+                </div>
+              </li>
+            );
+          })}
+        </ul>
       )}
-
       {lastUpdated && (
-        <p className="mt-2 text-right text-xs text-[var(--muted-foreground)]">
-          {minutesAgo === 0 ? "Updated just now" : `Updated ${minutesAgo} min ago`}
+        <p className="text-xs text-[var(--muted-foreground)] mt-2 text-right">
+         {minutesAgo === 0 ? "Updated just now" : `Updated ${minutesAgo} min ago`}
         </p>
-      )}
+     )}
     </div>
   );
 }
