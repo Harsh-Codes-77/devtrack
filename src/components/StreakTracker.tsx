@@ -20,6 +20,7 @@ interface ContributionData {
 
 interface FreezeData {
   hasFreeze: boolean;
+  freezeDate?: string | null;
 }
 
 export default function StreakTracker() {
@@ -381,12 +382,24 @@ export default function StreakTracker() {
 
       {/* Streak Calendar Section */}
       {contributionData ? (
-        <StreakCalendar
-          contributions={contributionData.data}
-          freezeDates={freezeDates}
-          currentMonth={calendarMonth}
-          onMonthChange={setCalendarMonth}
-        />
+        <>
+          {/*
+            Freeze dates are managed via the streak freeze API (/api/streak/freeze).
+            Users can activate a freeze from the freeze button in this component.
+            The calendar displays existing freeze dates from the API response.
+            Future: add UI to manually mark/unmark past dates as frozen.
+          */}
+          <StreakCalendar
+            contributions={contributionData.data}
+            freezeDates={
+              freeze?.freezeDate
+                ? Array.from(new Set([...freezeDates, freeze.freezeDate]))
+                : freezeDates
+            }
+            currentMonth={calendarMonth}
+            onMonthChange={setCalendarMonth}
+          />
+        </>
       ) : null}
     </div>
   );
@@ -436,6 +449,7 @@ function StreakCalendar({
 
   const handlePrevMonth = () => onMonthChange(new Date(year, month - 1));
   const handleNextMonth = () => onMonthChange(new Date(year, month + 1));
+  const freezeSet = new Set(freezeDates);
 
   return (
     <div className="mt-6 pt-6 border-t border-[var(--border)]">
@@ -483,26 +497,26 @@ function StreakCalendar({
 
           const dateStr = toLocalDateStr(dayData.date);
           const commitCount = contributions[dateStr] ?? 0;
-          const isFrozen = freezeDates.includes(dateStr);
           const isFuture = dayData.date > today;
           const isToday = dayData.date.toDateString() === today.toDateString();
+          const isFrozen = freezeSet.has(dateStr) && commitCount === 0;
 
-          let bgColor = "bg-white dark:bg-transparent";
+          let bgColor = "bg-transparent";
           let borderColor = "border border-[var(--border)]";
           let statusText = "";
 
           if (!isFuture) {
             if (isFrozen) {
-              bgColor = "bg-blue-500";
-              borderColor = "border border-blue-600";
+              bgColor = "bg-[var(--accent)]/20";
+              borderColor = "border border-[var(--accent)]/40";
               statusText = "Frozen";
             } else if (commitCount > 0) {
-              bgColor = "bg-green-500";
-              borderColor = "border border-green-600";
+              bgColor = "bg-[var(--accent)]";
+              borderColor = "border border-[var(--accent)]";
               statusText = "Committed";
             } else {
-              bgColor = "bg-gray-400";
-              borderColor = "border border-gray-500";
+              bgColor = "bg-[var(--muted-foreground)]/20";
+              borderColor = "border border-[var(--muted-foreground)]/30";
               statusText = "Missed";
             }
           }
@@ -542,15 +556,15 @@ function StreakCalendar({
       {/* Legend */}
       <div className="mt-6 flex flex-wrap gap-6 text-sm">
         <div className="flex items-center gap-3">
-          <div className="h-4 w-4 rounded-md bg-green-500" />
+          <div className="h-4 w-4 rounded-md bg-[var(--accent)]" />
           <span className="text-[var(--card-foreground)] font-medium">Committed</span>
         </div>
         <div className="flex items-center gap-3">
-          <div className="h-4 w-4 rounded-md bg-blue-500" />
+          <div className="h-4 w-4 rounded-md border border-[var(--accent)]/40 bg-[var(--accent)]/20" />
           <span className="text-[var(--card-foreground)] font-medium">Frozen</span>
         </div>
         <div className="flex items-center gap-3">
-          <div className="h-4 w-4 rounded-md bg-gray-400" />
+          <div className="h-4 w-4 rounded-md border border-[var(--muted-foreground)]/30 bg-[var(--muted-foreground)]/20" />
           <span className="text-[var(--card-foreground)] font-medium">Missed</span>
         </div>
         <div className="flex items-center gap-3">
@@ -558,6 +572,9 @@ function StreakCalendar({
           <span className="text-[var(--card-foreground)] font-medium">Future</span>
         </div>
       </div>
+      <p className="mt-2 text-xs text-[var(--muted-foreground)]">
+        Frozen days are set via the streak freeze feature above.
+      </p>
     </div>
   );
 }
