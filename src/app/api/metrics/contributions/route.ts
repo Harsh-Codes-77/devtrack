@@ -256,7 +256,13 @@ export async function GET(req: NextRequest) {
         { bypass, userId: session.githubId ?? session.githubLogin }
       );
       return Response.json(result);
-    } catch {
+    } catch (err) {
+      if (err instanceof RateLimitError) {
+        return Response.json(
+          { error: "rate_limited", resetAt: err.resetAt },
+          { status: 429 }
+        );
+      }
       return Response.json({ error: "GitHub API error" }, { status: 502 });
     }
   }
@@ -269,14 +275,6 @@ export async function GET(req: NextRequest) {
         days,
         { bypass, userId: session.githubId ?? session.githubLogin }
       );
-      return Response.json(result);
-    } catch (err) {
-      if (err instanceof RateLimitError) {
-        return Response.json(
-          { error: "rate_limited", resetAt: err.resetAt },
-          { status: 429 }
-        );
-      }
 
       if (!gitlabToken) {
         return Response.json(result);
@@ -288,7 +286,13 @@ export async function GET(req: NextRequest) {
       });
 
       return Response.json(merged);
-    } catch {
+    } catch (err) {
+      if (err instanceof RateLimitError) {
+        return Response.json(
+          { error: "rate_limited", resetAt: err.resetAt },
+          { status: 429 }
+        );
+      }
       return Response.json({ error: "GitHub API error" }, { status: 502 });
     }
   }
@@ -366,7 +370,13 @@ export async function GET(req: NextRequest) {
       });
 
       return Response.json(merged);
-    } catch {
+    } catch (err) {
+      if (err instanceof RateLimitError) {
+        return Response.json(
+          { error: "rate_limited", resetAt: err.resetAt },
+          { status: 429 }
+        );
+      }
       return Response.json({ error: "GitHub API error" }, { status: 502 });
     }
   }
