@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAccount } from "@/components/AccountContext";
 import RateLimitBanner from "@/components/RateLimitBanner";
+import StreakMilestoneBanner from "@/components/StreakMilestoneBanner";
+import { useCountUp } from "@/hooks/useCountUp";
+import { useHeatmapTheme } from "@/hooks/useHeatmapTheme";
+
+const STREAK_MILESTONES = [3, 7, 14, 30];
 
 interface StreakData {
   current: number;
@@ -26,6 +31,8 @@ export default function StreakTracker() {
   const [data, setData] = useState<StreakData | null>(null);
   const [contributionData, setContributionData] = useState<ContributionData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [dismissedMilestones, setDismissedMilestones] = useState<number[]>([]);
+  const [lastCelebratedMilestone, setLastCelebratedMilestone] = useState<number>(0);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [minutesAgo, setMinutesAgo] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -36,6 +43,10 @@ export default function StreakTracker() {
   const [cancelling, setCancelling] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [rateLimitResetAt, setRateLimitResetAt] = useState<number | null>(null);
+
+  const animatedCurrent = useCountUp(data?.current ?? 0);
+  const animatedLongest = useCountUp(data?.longest ?? 0);
+  const animatedActiveDays = useCountUp(data?.totalActiveDays ?? 0);
 
   const fetchStreak = useCallback(async () => {
     setLoading(true);
@@ -96,6 +107,29 @@ export default function StreakTracker() {
   }, [fetchStreak]);
 
   useEffect(() => {
+    const stored = localStorage.getItem(
+      "devtrack:dismissed-milestones"
+    );
+
+    const storedLastCelebrated = localStorage.getItem(
+      "devtrack:last-celebrated-milestone"
+    );
+
+    if (stored) {
+      try {
+        setDismissedMilestones(JSON.parse(stored));
+      } catch {
+        // ignore invalid localStorage data
+      }
+    }
+
+    if (storedLastCelebrated) {
+      setLastCelebratedMilestone(
+        Number(storedLastCelebrated)
+      );
+    }
+  }, []);
+  useEffect(() => {
     if (!lastUpdated) return;
     const interval = setInterval(() => {
       const diff = Math.floor((Date.now() - lastUpdated.getTime()) / 60000);
@@ -141,11 +175,17 @@ export default function StreakTracker() {
   if (loading) {
     return (
       <div className="bg-[var(--card)] rounded-xl p-6">
-        <div className="h-6 w-36 bg-[var(--card-muted)] rounded animate-pulse mb-4" />
-        <div className="grid grid-cols-2 gap-4">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="bg-[var(--card-muted)] rounded-lg h-28 animate-pulse" />
-          ))}
+        <div role="status" aria-live="polite" aria-busy="true">
+          <span className="sr-only">Loading streak tracker</span>
+          <div
+            aria-hidden="true"
+            className="h-6 w-36 bg-[var(--card-muted)] rounded animate-pulse mb-4"
+          />
+          <div aria-hidden="true" className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="bg-[var(--card-muted)] rounded-lg h-28 animate-pulse" />
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -164,12 +204,12 @@ export default function StreakTracker() {
     return (
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-sm">
         <h2 className="mb-4 text-lg font-semibold text-[var(--card-foreground)]">Commit Streaks</h2>
-        <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-400">
+        <div className="rounded-lg border border-[var(--destructive-border)] bg-[var(--destructive-soft)] p-4 text-sm text-[var(--destructive-foreground)]">
           <p>{error}</p>
           <button
             type="button"
             onClick={fetchStreak}
-            className="mt-3 rounded-md border border-red-500/30 px-3 py-1.5 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/10"
+            className="mt-3 rounded-md border border-[var(--destructive-border)] px-3 py-1.5 text-xs font-medium text-[var(--destructive-foreground)] transition-colors hover:bg-[var(--destructive-soft)]"
           >
             Try again
           </button>
@@ -177,7 +217,36 @@ export default function StreakTracker() {
       </div>
     );
   }
+    if (
+    !contributionData ||
+    !contributionData.data ||
+    Object.keys(contributionData.data).length === 0
+  ) {
+    return (
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-sm min-h-[420px]">
+        <div className="flex h-full flex-col items-center justify-center text-center">
+          <div className="mb-4 text-4xl">📉</div>
 
+          <h2 className="text-lg font-semibold text-[var(--card-foreground)]">
+            No contribution data found
+          </h2>
+
+          <p className="mt-2 max-w-sm text-sm text-[var(--muted-foreground)]">
+            Start committing to build your streak and track your coding activity.
+          </p>
+
+          <a
+            href="https://github.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-4 rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-foreground)] transition-opacity hover:opacity-90"
+          >
+            Open GitHub
+          </a>
+        </div>
+      </div>
+    );
+  }
   const MILESTONES = [
     { days: 30, label: "30-day streak!", emoji: "🏅" },
     { days: 14, label: "2-week streak!", emoji: "⭐" },
@@ -186,12 +255,14 @@ export default function StreakTracker() {
   ];
 
   const badge = MILESTONES.find((m) => (data?.current ?? 0) >= m.days);
+  const activeDayData = calculateActiveDayInsights(contributionData?.data);
+  const monthlyTrend = calculateMonthlyTrend(contributionData);
 
   const stats = data
     ? [
         {
           label: "Current Streak",
-          value: data.current,
+          value: animatedCurrent,
           unit: "days",
           highlight: data.current > 0,
           icon: "🔥",
@@ -199,7 +270,7 @@ export default function StreakTracker() {
         },
         {
           label: "Longest Streak",
-          value: data.longest,
+          value: animatedLongest,
           unit: "days",
           highlight: false,
           icon: "🏆",
@@ -207,7 +278,7 @@ export default function StreakTracker() {
         },
         {
           label: "Active Days (90d)",
-          value: data.totalActiveDays,
+          value: animatedActiveDays,
           unit: "days",
           highlight: false,
           icon: "📅",
@@ -248,7 +319,49 @@ export default function StreakTracker() {
     }).catch(() => {});
   };
 
+  const currentMilestone = 
+    [...STREAK_MILESTONES]
+      .reverse()
+      .find(
+        (m) =>
+          data?.current &&
+          data.current >= m &&
+          m > lastCelebratedMilestone
+      );
+  const shouldShowBanner = 
+    currentMilestone &&
+    !dismissedMilestones.includes(currentMilestone);
+  const handleDismissBanner = () => {
+    if (!currentMilestone) return;
+
+    const updated = [
+      ...dismissedMilestones,
+      currentMilestone,
+    ];
+
+    setDismissedMilestones(updated);
+
+    setLastCelebratedMilestone(currentMilestone);
+
+    localStorage.setItem(
+      "devtrack:last-celebrated-milestone",
+      String(currentMilestone)
+    );
+
+    localStorage.setItem(
+      "devtrack:dismissed-milestones",
+      JSON.stringify(updated)
+    );
+  };
+
   return (
+    <>
+      {shouldShowBanner && currentMilestone && (
+        <StreakMilestoneBanner
+          streak={currentMilestone}
+          onDismiss={handleDismissBanner}
+        />
+      )}
     <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-sm">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-[var(--card-foreground)]">
@@ -262,14 +375,14 @@ export default function StreakTracker() {
             aria-label="Copy streak stats to clipboard"
           >
             {copied ? (
-              <span className="text-xs font-medium text-green-500">Copied!</span>
+              <span className="text-xs font-medium text-[var(--success-foreground)]">Copied!</span>
             ) : (
               <span className="text-base opacity-80 hover:opacity-100">📋</span>
             )}
           </button>
         )}
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {stats.map((stat) => (
           <div
             key={stat.label}
@@ -296,10 +409,64 @@ export default function StreakTracker() {
           </div>
         ))}
       </div>
+      {monthlyTrend.isValid && (
+        <div className="mt-3 flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 py-2.5 text-xs shadow-sm">
+          <span className="text-[var(--muted-foreground)]">
+            This month: <strong className="font-semibold text-[var(--card-foreground)]">{monthlyTrend.thisMonth} active days</strong>
+          </span>
+          <span className={monthlyTrend.colorClass}>
+            ({monthlyTrend.text})
+          </span>
+        </div>
+      )}
       {badge && (
         <div className="mt-3 flex items-center justify-center gap-2 rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/10 px-3 py-2">
           <span>{badge.emoji}</span>
           <span className="text-sm font-medium text-[var(--accent)]">{badge.label}</span>
+        </div>
+      )}
+
+      {activeDayData.isValid && activeDayData.peakDay && (
+        <div className="mt-4 pt-4 border-t border-[var(--border)]">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <div className="text-xs font-medium text-[var(--muted-foreground)]">Most Active Day</div>
+              <div className="text-sm font-semibold text-[var(--card-foreground)] mt-0.5">
+                {activeDayData.peakDay.label}{" "}
+                <span className="text-xs font-normal text-[var(--muted-foreground)]">
+                  (avg {activeDayData.peakDay.avgCommits.toFixed(1)} commits)
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-end gap-1.5 h-10 pt-2">
+              {activeDayData.insights.map((item) => {
+                const maxAvg = activeDayData.peakDay?.avgCommits ?? 1;
+                const heightPercent = maxAvg > 0 ? Math.max(15, Math.round((item.avgCommits / maxAvg) * 100)) : 15;
+                const isPeak = item.label === activeDayData.peakDay?.label;
+
+                return (
+                  <div
+                    key={item.label}
+                    className="flex flex-col items-center gap-1 group relative cursor-default"
+                    title={`${item.label}: avg ${item.avgCommits.toFixed(1)} commits`}
+                  >
+                    <div className="w-5 bg-[var(--card-muted)] rounded-sm flex items-end h-8 overflow-hidden">
+                      <div
+                        style={{ height: `${heightPercent}%` }}
+                        className={`w-full rounded-sm transition-all duration-300 ${
+                          isPeak ? "bg-[var(--accent)]" : "bg-[var(--accent)]/40 hover:bg-[var(--accent)]/60"
+                        }`}
+                      />
+                    </div>
+                    <span className={`text-[10px] leading-none ${isPeak ? "font-bold text-[var(--card-foreground)]" : "text-[var(--muted-foreground)]"}`}>
+                      {item.shortLabel}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
       {lastUpdated && (
@@ -320,7 +487,7 @@ export default function StreakTracker() {
                 type="button"
                 onClick={handleCancelFreeze}
                 disabled={cancelling}
-                className="rounded-md bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-400 transition hover:bg-red-500/20 disabled:opacity-60"
+                className="rounded-md bg-[var(--destructive-soft)] px-2.5 py-1 text-xs font-medium text-[var(--destructive-foreground)] transition hover:opacity-90 disabled:opacity-60"
               >
                 {cancelling ? "Removing..." : "Yes, remove"}
               </button>
@@ -354,6 +521,7 @@ export default function StreakTracker() {
         />
       ) : null}
     </div>
+    </>
   );
 }
 
@@ -361,6 +529,10 @@ interface StreakCalendarProps {
   contributions: Record<string, number>;
   currentMonth: Date;
   onMonthChange: (date: Date) => void;
+}
+
+function toLocalDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function StreakCalendar({ contributions, currentMonth, onMonthChange }: StreakCalendarProps) {
@@ -373,6 +545,7 @@ function StreakCalendar({ contributions, currentMonth, onMonthChange }: StreakCa
   const daysInMonth = lastDay.getDate();
   const startingDayOfWeek = firstDay.getDay();
 
+  const { getCalendarStyle, themeConfig } = useHeatmapTheme();
   const monthName = firstDay.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -428,23 +601,13 @@ function StreakCalendar({ contributions, currentMonth, onMonthChange }: StreakCa
             return <div key={`empty-${idx}`} className="aspect-square" />;
           }
 
-          const dateStr = dayData.date.toISOString().slice(0, 10);
+          const dateStr = toLocalDateStr(dayData.date);
           const commitCount = contributions[dateStr] ?? 0;
           const isFuture = dayData.date > today;
           const isToday = dayData.date.toDateString() === today.toDateString();
-
-          let bgColor = "bg-white dark:bg-transparent";
-          let borderColor = "border border-[var(--border)]";
-
-          if (!isFuture) {
-            if (commitCount > 0) {
-              bgColor = "bg-green-500";
-              borderColor = "border border-green-600";
-            } else {
-              bgColor = "bg-gray-500";
-              borderColor = "border border-gray-600";
-            }
-          }
+          const cellStyle = isFuture
+            ? { backgroundColor: "transparent", borderColor: themeConfig.border }
+            : getCalendarStyle(commitCount);
 
           const tooltipText = !isFuture
             ? `${dayData.date.toLocaleDateString("en-US", {
@@ -457,13 +620,14 @@ function StreakCalendar({ contributions, currentMonth, onMonthChange }: StreakCa
           return (
             <div
               key={dateStr}
-              className={`group relative aspect-square rounded-md ${bgColor} ${borderColor} transition-transform hover:scale-110 cursor-default ${
+              className={`group relative aspect-square rounded-md border transition-transform hover:scale-110 cursor-default ${
                 isToday ? "ring-2 ring-[var(--accent)]" : ""
               }`}
+              style={cellStyle}
               title={tooltipText}
             >
               {!isFuture && (
-                <span className="absolute inset-0 flex items-center justify-center text-xs font-medium text-white dark:text-gray-900 opacity-0 group-hover:opacity-100 transition-opacity">
+                <span className="absolute inset-0 flex items-center justify-center text-xs font-medium text-[var(--foreground)] opacity-100 transition-opacity">
                   {dayData.dayOfMonth}
                 </span>
               )}
@@ -480,18 +644,152 @@ function StreakCalendar({ contributions, currentMonth, onMonthChange }: StreakCa
 
       <div className="mt-4 flex flex-wrap gap-4 text-xs text-[var(--muted-foreground)]">
         <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded bg-green-500" />
+          <div className="h-3 w-3 rounded border border-solid" style={{ backgroundColor: themeConfig.levelTwo, borderColor: themeConfig.border }} />
           <span>Committed</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded bg-gray-500" />
+          <div className="h-3 w-3 rounded border border-solid" style={{ backgroundColor: themeConfig.missed, borderColor: themeConfig.border }} />
           <span>Missed</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded border border-[var(--border)]" />
+          <div className="h-3 w-3 rounded border border-solid" style={{ backgroundColor: "transparent", borderColor: themeConfig.border }} />
           <span>Future</span>
         </div>
       </div>
     </div>
   );
+}
+
+interface WeekdayInsight {
+  label: string;
+  shortLabel: string;
+  totalCommits: number;
+  countDays: number;
+  avgCommits: number;
+}
+
+function calculateActiveDayInsights(data: Record<string, number> | undefined | null): {
+  insights: WeekdayInsight[];
+  peakDay: WeekdayInsight | null;
+  isValid: boolean;
+} {
+  if (!data || Object.keys(data).length < 14) {
+    return { insights: [], peakDay: null, isValid: false };
+  }
+
+  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const shortNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  const totals = [0, 0, 0, 0, 0, 0, 0];
+  const counts = [0, 0, 0, 0, 0, 0, 0];
+
+  for (const [dateStr, commitCount] of Object.entries(data)) {
+    const parts = dateStr.split("-").map(Number);
+    if (parts.length === 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])) {
+      const d = new Date(parts[0], parts[1] - 1, parts[2]);
+      if (!isNaN(d.getTime())) {
+        const dayIdx = d.getDay();
+        totals[dayIdx] += commitCount;
+        counts[dayIdx] += 1;
+      }
+    }
+  }
+
+  const insights: WeekdayInsight[] = [];
+  for (let i = 0; i < 7; i++) {
+    const totalCommits = totals[i];
+    const countDays = counts[i];
+    const avgCommits = countDays > 0 ? totalCommits / countDays : 0;
+    insights.push({
+      label: dayNames[i],
+      shortLabel: shortNames[i],
+      totalCommits,
+      countDays,
+      avgCommits,
+    });
+  }
+
+  let maxAvg = -1;
+  for (const item of insights) {
+    if (item.avgCommits > maxAvg) {
+      maxAvg = item.avgCommits;
+    }
+  }
+
+  const tiedDays = insights.filter((item) => item.avgCommits === maxAvg);
+  tiedDays.sort((a, b) => a.label.localeCompare(b.label));
+  const peakDay = tiedDays.length > 0 ? tiedDays[0] : null;
+
+  return { insights, peakDay, isValid: true };
+}
+
+interface MonthlyTrendResult {
+  isValid: boolean;
+  thisMonth: number;
+  lastMonth: number;
+  text: string;
+  colorClass: string;
+}
+
+function calculateMonthlyTrend(contrib: ContributionData | undefined | null): MonthlyTrendResult {
+  if (!contrib || !contrib.data) {
+    return { isValid: false, thisMonth: 0, lastMonth: 0, text: "", colorClass: "" };
+  }
+
+  if (contrib.days < 30) {
+    return { isValid: false, thisMonth: 0, lastMonth: 0, text: "", colorClass: "" };
+  }
+
+  const data = contrib.data;
+
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
+
+  const prevDate = new Date(currentYear, currentMonth - 1, 1);
+  const prevYear = prevDate.getFullYear();
+  const prevMonth = prevDate.getMonth();
+
+  let thisMonth = 0;
+  let lastMonth = 0;
+
+  for (const [dateStr, count] of Object.entries(data)) {
+    if (count > 0) {
+      const parts = dateStr.split("-").map(Number);
+      if (parts.length === 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])) {
+        const d = new Date(parts[0], parts[1] - 1, parts[2]);
+        if (!isNaN(d.getTime())) {
+          if (d.getFullYear() === currentYear && d.getMonth() === currentMonth) {
+            thisMonth++;
+          } else if (d.getFullYear() === prevYear && d.getMonth() === prevMonth) {
+            lastMonth++;
+          }
+        }
+      }
+    }
+  }
+
+  let text = "";
+  let colorClass = "";
+
+  if (lastMonth === 0) {
+    text = "First month tracked!";
+    colorClass = "text-[var(--accent)] font-medium";
+  } else {
+    const deltaCalc = ((thisMonth - lastMonth) / lastMonth) * 100;
+    const formatted = deltaCalc.toFixed(0);
+
+    if (deltaCalc > 0) {
+      text = `↑${formatted}% vs last month`;
+      colorClass = "text-[var(--success-foreground)] font-medium";
+    } else if (deltaCalc < 0) {
+      text = `↓${Math.abs(deltaCalc).toFixed(0)}% vs last month`;
+      colorClass = "text-[var(--destructive-foreground)] font-medium";
+    } else {
+      text = `=0% vs last month`;
+      colorClass = "text-[var(--muted-foreground)] font-medium";
+    }
+  }
+
+  return { isValid: true, thisMonth, lastMonth, text, colorClass };
 }

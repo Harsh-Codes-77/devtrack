@@ -3,12 +3,27 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAccount } from "@/components/AccountContext";
 import RateLimitBanner from "@/components/RateLimitBanner";
+import PRStatusDonutChart from "./PRStatusDonutChart";
 
 interface PRData {
   open: number;
   merged: number;
+  closed: number;
   avgReviewHours: number;
+  avgFirstReviewHours: number | null;
   mergeRate: string;
+}
+
+function formatReviewCycle(hours: number | null): string {
+  if (hours === null) {
+    return "—";
+  }
+
+  if (hours < 24) {
+    return `${hours}h`;
+  }
+
+  return `${Math.round((hours / 24) * 10) / 10}d`;
 }
 
 export default function PRMetrics() {
@@ -52,6 +67,11 @@ export default function PRMetrics() {
         { label: "Open PRs", value: metrics.open },
         { label: "Merged (30d)", value: metrics.merged },
         { label: "Avg Review Time", value: `${metrics.avgReviewHours}h` },
+        {
+          label: "Avg First Review",
+          value: formatReviewCycle(metrics.avgFirstReviewHours),
+          title: "Average time from PR open to first review comment or approval",
+        },
         { label: "Merge Rate", value: metrics.mergeRate },
       ]
     : [];
@@ -60,40 +80,68 @@ export default function PRMetrics() {
     <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-sm">
       <h2 className="mb-4 text-lg font-semibold text-[var(--card-foreground)]">PR Analytics</h2>
       {loading ? (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => (
-            <div
-              key={i}
-              className="bg-[var(--card-muted)] rounded-lg p-4 h-24 animate-pulse"
-            />
-          ))}
+        <div
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+          className="space-y-4"
+        >
+          <span className="sr-only">Loading PR analytics</span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div
+                key={i}
+                aria-hidden="true"
+                className="bg-[var(--card-muted)] rounded-lg p-4 h-24 animate-pulse"
+              />
+            ))}
+          </div>
+          <div className="h-[270px] rounded-lg bg-[var(--card-muted)] animate-pulse" aria-hidden="true" />
         </div>
       ) : rateLimitResetAt ? (
         <RateLimitBanner resetAt={rateLimitResetAt} />
       ) : error ? (
-        <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-400">
+        <div className="rounded-lg border border-[var(--destructive-border)] bg-[var(--destructive-soft)] p-4 text-sm text-[var(--destructive-foreground)]">
           <p>{error}</p>
           <button
             type="button"
             onClick={fetchMetrics}
-            className="mt-3 rounded-md border border-red-500/30 px-3 py-1.5 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/10"
+            className="mt-3 rounded-md border border-[var(--destructive-border)] px-3 py-1.5 text-xs font-medium text-[var(--destructive-foreground)] transition-colors hover:bg-[var(--destructive-soft)]"
           >
             Try again
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {stats.map((stat) => (
-            <div
-              key={stat.label}
-              className="rounded-lg bg-[var(--control)] p-4 text-center"
-            >
-              <div className="text-2xl font-bold text-[var(--accent)]">
-                {stat.value}
+        <div className="space-y-6">
+          {/* Stat grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            {stats.map((stat) => (
+              <div
+                key={stat.label}
+                className="rounded-lg bg-[var(--control)] p-4 text-center min-w-0"
+                title={stat.title}
+              >
+                <div className="truncate text-2xl font-bold text-[var(--accent)]">
+                  {stat.value}
+                </div>
+                <div className="truncate mt-1 text-sm text-[var(--muted-foreground)]">{stat.label}</div>
               </div>
-              <div className="mt-1 text-sm text-[var(--muted-foreground)]">{stat.label}</div>
+            ))}
+          </div>
+
+          {/* PR status donut chart */}
+          {metrics && (
+            <div>
+              <p className="mb-2 text-sm font-medium text-[var(--muted-foreground)]">
+                PR Status Distribution
+              </p>
+              <PRStatusDonutChart
+                open={metrics.open}
+                merged={metrics.merged}
+                closed={metrics.closed}
+              />
             </div>
-          ))}
+          )}
         </div>
       )}
     </div>

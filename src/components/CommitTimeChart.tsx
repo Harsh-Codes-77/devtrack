@@ -111,22 +111,29 @@ export default function CommitTimeChart() {
 
       <div className="flex-1 min-h-[250px]">
         {loading ? (
-          <div className="flex h-full flex-col justify-end space-y-3 pt-6 pb-2">
+          <div
+            role="status"
+            aria-live="polite"
+            aria-busy="true"
+            className="flex h-full flex-col justify-end space-y-3 pt-6 pb-2"
+          >
+            <span className="sr-only">Loading commit time chart</span>
             {[1, 2, 3, 4].map((i) => (
               <div
                 key={i}
+                aria-hidden="true"
                 className="h-10 rounded bg-[var(--card-muted)] animate-pulse"
               />
             ))}
           </div>
         ) : error ? (
           <div className="flex h-full items-center justify-center">
-            <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-400 text-center">
+            <div className="rounded-lg border border-[var(--destructive-border)] bg-[var(--destructive-soft)] p-4 text-sm text-[var(--destructive-foreground)] text-center">
               <p>{error}</p>
               <button
                 type="button"
                 onClick={fetchContributions}
-                className="mt-3 rounded-md border border-red-500/30 px-3 py-1.5 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/10"
+                className="mt-3 rounded-md border border-[var(--destructive-border)] px-3 py-1.5 text-xs font-medium text-[var(--destructive-foreground)] transition-colors hover:bg-[var(--destructive-soft)]"
               >
                 Try again
               </button>
