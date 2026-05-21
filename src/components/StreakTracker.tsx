@@ -665,6 +665,12 @@ function StreakCalendar({
             }
           }
 
+          const cellStyle = isFuture
+            ? { backgroundColor: "transparent", borderColor: themeConfig.border }
+            : isFrozen
+            ? undefined
+            : getCalendarStyle(commitCount);
+
           const tooltipText = !isFuture
             ? `${dayData.date.toLocaleDateString("en-US", {
                 weekday: "short",
