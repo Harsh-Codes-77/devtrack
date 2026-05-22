@@ -412,7 +412,8 @@ export async function GET(req: NextRequest) {
         bypass,
         userId: session.githubId ?? session.githubLogin ?? "primary",
       });
-      return Response.json(formatPRMetrics(result));
+      const gitlab = await getGitLabMetrics(gitlabToken, gitlabCacheContext);
+      return Response.json(formatPRMetricsResponse(result, gitlab));
     } catch (err) {
       if (err instanceof RateLimitError) {
         return Response.json(
@@ -420,9 +421,6 @@ export async function GET(req: NextRequest) {
           { status: 429 }
         );
       }
-      const gitlab = await getGitLabMetrics(gitlabToken, gitlabCacheContext);
-      return Response.json(formatPRMetricsResponse(result, gitlab));
-    } catch {
       return Response.json({ error: "GitHub API error" }, { status: 502 });
     }
   }
@@ -507,7 +505,8 @@ export async function GET(req: NextRequest) {
       bypass,
       userId: accountId === session.githubId ? session.githubId : accountId,
     });
-    return Response.json(formatPRMetrics(result));
+    const gitlab = await getGitLabMetrics(gitlabToken, gitlabCacheContext);
+    return Response.json(formatPRMetricsResponse(result, gitlab));
   } catch (err) {
     if (err instanceof RateLimitError) {
       return Response.json(
@@ -515,9 +514,6 @@ export async function GET(req: NextRequest) {
         { status: 429 }
       );
     }
-    const gitlab = await getGitLabMetrics(gitlabToken, gitlabCacheContext);
-    return Response.json(formatPRMetricsResponse(result, gitlab));
-  } catch {
     return Response.json({ error: "GitHub API error" }, { status: 502 });
   }
 }
